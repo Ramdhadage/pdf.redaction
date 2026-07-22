@@ -1,0 +1,191 @@
+---
+title: "Diagrams"
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+System Architecture of CDEX to know how all the components of the CDEX ecosystem fit together.
+```{mermaid}
+graph TB 
+subgraph External["External data Sources"]
+   PARQUET["PArquet Files <br/>(SDTM/ADAM)"]
+   SAS["SAS/XPT Files <brl> Legacy"]
+   RDS["Cached RDS<br/> (data a1.rds)"]
+end
+subgraph ConfigLayer["Configration Layer"]
+   YAML[" 3- Tier YAML Config<br/> default -> TA -> Study"]
+   HOOKS["Hook System <br/> (derive_adam.R, derive_cdex.R)"]
+   REGISTERY["study registory <br/> (inst/config.yaml)"]
+end 
+subgraph CoreEngine["Core Engine (R6 Classes)"]
+    SETTINGS["Settings calss <br/> UI choices, atributes, <br/> factor level"]
+    APP["App Class <br/> module assembly, <br/> CDISC datasets"]
+    STUDY_SPEC["Study Specs(123) <br/> {SUDY_ID}Settings <br/> {SUDY_ID}App"]
+end
+subgraph ModuleLayer["Visualization Modules"]
+    TM_G["tm_g_* (44) <br/> Graphical Modules <br/> ggplot2/ggiraph/d3.js"]
+    TM_T["tm_t_* (11) <br/> tabular Modules <br/> rtables"]
+    TM_X["tm_x_* (4) <br/> Special Modules <br/> chatgpt luna"]
+    CDEX_M["cdex_* (11) <br/> CDEX Modules <br/> km, CIF, Summaries"]
+end
+subgraph UILayer["UI / Presentation"]
+    TEAL["Teal Freamwork"]
+    BSLIB["bslib"]
+    SHINY["shiny"]
+    D3["D3.js htmlwidgets <br/> (AE Timelines)"]
+end
+subgraph Deployment["Deployment"]
+    POSIT["Posit Connect <br/> (dev/qc/prod)"]
+end
+PARQUET --> CoreEngine
+SAS--> CoreEngine
+RDS--> CoreEngine 
+YAML--> SETTINGS
+HOOKS --> CoreEngine
+REGISTERY--> CoreEngine
+SETTINGS --> APP
+STUDY_SPEC --> SETTINGS 
+STUDY_SPEC --> APP
+APP --> TM_G & TM_T & TM_X & CDEX_M
+TM_G & TM_T & TM_X & CDEX_M --> TEAL
+TEAL --> BSLIB --> SHINY
+D3 --> SHINY
+SHINY --> POSIT
+
+style External fill: #e8f4fd, storke: #2196F3
+style ConfigLayer fill: #fff3e0, storke: #ff9800
+style CoreEngine fill: #e8f5e9, storke: #4caf50 
+style ModuleLayer fill: #f3e5f5, storke: #9c27bo
+style UILayer fill: #fce4ec, storke: #e91e63
+style Deployment fill: #e0f2f1, storke: #009688 
+
+```
+Extact 11-steps to make-app() startup flow from run_app.R, showing how data, settings, and modules are assembled at runtime.
+```{mermaid}
+sequenceDiagram
+participant User as User
+participant RunApp as make_app()
+participant Theme as ggplot2
+participant Data as Data Pipeline
+participant Settings as {Study}Settings
+participant App as {Study}App
+participant Teal as teal::init()
+User -->> RunApp: make_app(study, env)
+Note over RunApp: Step1
+RunApp -->> Theme: theme_set(theme_custom_teal_ecdx())
+Note over RunApp: Step2
+RunApp -->> RunApp: Check a1.rds exist?
+alt a1.rds exist 
+RunApp -->> RunApp: load Cache Object
+RunApp -->> User: Return list(UI, server)
+end
+Note over RunApp: Step3
+RunApp -->> Data: read_parquet_data(study, env)
+Data -->> RunApp: data_list (14 fields) 
+Note over RunApp: Step4
+RunApp -->> Settings: get(paste0(study, "settings"))$new(data_list)
+Settings -->> RunApp: s1(Settings instance)
+RunApp -->> Settings: s1$update_settings()
+Note right of Settings: Study Specific UI Choices
+RunApp -->> Settings: s1$update_attributes()
+Note right of Settings: Color/shape maping
+RunApp -->> Settings: s1$save_attributes()
+Note right of Settings: persist to attributes.rds
+Note over RunApp: Step5
+RunApp -->> App: get(study, "App")$new(study, data_list, a1)
+App -->> RunApp: a1(App instance)
+RunApp -->> App: a1$update_modules()
+Note right of App: Study-Specific module changes
+RunApp -->> App: a1$create_app()
+Note over RunApp: Step6
+App -->> Teal: teal::init(data, modules, header, footer)
+Teal -->> RunApp:list(ui, server)
+RunApp -->> User: shinyApp(ui, server)
+Note over RunApp: Step7
+```
+### R6 Class Hierrchy
+Show the inheritance pattern for settings and app classes, how each study inherits and overrides specific methods.
+
+```{mermaid}
+classDiagram
+   class Settings {
+       +derived_data
+       +arm_vars
+       +atributes
+       +data_obj
+       +initialize(data_list)
+       +define_default_settings()
+       +updates_settings()
+       +update_atributes()
+       +save_attributes(path)
+       +make_dynamic_choices(df_name, param_var) 
+   }
+
+   class App {
+    +header
+    +footer
+    +code
+    +data
+    +app
+    +settings
+    +modules
+    +study
+    +initialize(study, data, settings, code)
+    +define_default_modules()
+    +update_modules()
+    +create_app()
+    +create_cdisc_datasets()
+    +create_header()
+    +create_footer() 
+   }
+   class 123Settings {
+    +updates_settings()
+    +update_atributes()
+   }
+   class 123App {
+    +update_modules()
+   }
+   class 456Settings {
+    +updates_settings()
+    +update_atributes()
+   }
+   class 456App {
+    +update_modules()
+   }
+   class AnotherStudySettings {
+    +updates_settings()
+    +update_atributes()
+   }
+   class AnotherStudyApp {
+    +update_modules()
+   }
+   Settings <-- 123Settings : inherits
+   Settings <-- 456Settings : inherits
+   Settings <-- AnotherStudySettings : inherits
+   App <-- 123App: inherits
+   App <-- 456App: inherits
+   App <-- AnotherStudyApp: inherits
+
+   Settings --> App: Passed via constructor
+   
+
+```
+```{mermaid}
+flowchart LR
+  subgraph Sources["Source data"]
+    SAS["SAS7BAT/XPT <br> SDTM domains"]
+    ADAM["ADAM paraquet/SAS <br> pre-derived"]
+  end
+
+  subgraph Mapper["cdex.mapper Ppackage"]
+    direction TB
+    CFG["study.yaml<br>+ spec.csv]
+    PIPE["Two-phase Pipeline<br>map_study]
+    CFG --> PIPE
+  end
+  SAS --> Mapper
+  ADAM --> Mapper
+style Sources fill: #fff3e0, stroke: #4CAF50
+```
